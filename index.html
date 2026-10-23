@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Budget</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap">
+<style>
+:root{--bg:#eef3f1;--panel:#fff;--ink:#10231f;--mute:#5d716b;--line:#d4dfdb;--teal:#0e7c66;--gold:#f2a900;--red:#c8412b;--on:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1a17;--panel:#15261f;--ink:#e8f1ee;--mute:#92a8a1;--line:#27403a;--teal:#34c3a2;--gold:#f6bd3a;--red:#ff7a62;--on:#0d1a17}}
+:root[data-theme="dark"]{--bg:#0d1a17;--panel:#15261f;--ink:#e8f1ee;--mute:#92a8a1;--line:#27403a;--teal:#34c3a2;--gold:#f6bd3a;--red:#ff7a62;--on:#0d1a17}
+*{box-sizing:inherit}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:520px;margin:0 auto;padding:16px 16px 96px}
+h1{font-size:15px;font-weight:600;color:var(--mute);margin:4px 0 0}
+h2{font-size:18px;margin:24px 0 8px}
+.big{font-size:44px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin:2px 0 0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.mute{color:var(--mute);font-size:14px}
+.bar{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:8px 0 4px}
+.bar>i{display:block;height:100%;background:var(--teal)}
+.bar.over>i{background:var(--red)}
+.split{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:14px 0 6px;background:var(--line)}
+.split i:first-child{background:var(--teal)}.split i:last-child{background:var(--gold)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px))}
+nav button{flex:1;border:0;background:none;color:var(--mute);font:600 12px inherit;font-family:inherit;padding:8px 0;border-radius:8px}
+nav button[aria-current=true]{color:var(--ink);background:var(--bg)}
+label{display:block;font-size:14px;color:var(--mute);margin:14px 0 6px}
+input,textarea{width:100%;font:inherit;font-size:18px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+textarea{font-size:13px;min-height:90px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{font:600 15px inherit;font-family:inherit;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.chips button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.go{width:100%;margin-top:18px;padding:14px;border:0;border-radius:12px;background:var(--teal);color:var(--on);font:800 17px inherit;font-family:inherit}
+.go.alt{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+.msg{margin-top:14px;padding:12px;border-radius:10px;font-size:15px}
+.msg.err{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--ink);border:1px solid var(--red)}
+.msg.warn{background:color-mix(in srgb,var(--gold) 22%,transparent);border:1px solid var(--gold)}
+.msg.ok{background:color-mix(in srgb,var(--teal) 18%,transparent);border:1px solid var(--teal)}
+.tx{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.tx:last-child{border:0}.tx b{font-weight:600}
+.pos{color:var(--teal)}.neg{color:var(--red)}
+.x{border:0;background:none;color:var(--mute);font:inherit;font-size:13px;text-decoration:underline;padding:0}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.pct{display:flex;align-items:center;gap:10px;margin-top:10px}.pct span{flex:1}.pct input{width:110px;text-align:right}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<nav id="nav"></nav>
+<script>
+/* ---- Engine: direct port of BudgetEngine.kt (integer paise, largest-remainder) ---- */
+const CATS=['CANTEEN','COLLEGE','TRAVELLING','SAVINGS'];
+const LABEL={CANTEEN:'Canteen',COLLEGE:'College',TRAVELLING:'Travelling',SAVINGS:'Savings'};
+const DEFAULT_PLAN={CANTEEN:2000,COLLEGE:1500,TRAVELLING:1500,SAVINGS:5000};
+const E={
+  validatePlan(bp){
+    if(CATS.some(c=>(bp[c]??0)<0))return 'Percentages cannot be negative.';
+    if(CATS.some(c=>bp[c]==null))return 'All four categories need a percentage.';
+    if(CATS.reduce((a,c)=>a+bp[c],0)!==10000)return 'Percentages must total exactly 100%.';
+    return null;
+  },
+  allocate(inc,bp){
+    const base=[],rem=[];
+    CATS.forEach((c,i)=>{const p=BigInt(inc)*BigInt(bp[c]);base[i]=Number(p/10000n);rem[i]=Number(p%10000n)});
+    let left=inc-base.reduce((a,b)=>a+b,0);
+    [...CATS.keys()].sort((a,b)=>rem[b]-rem[a]).forEach(i=>{if(left>0){base[i]++;left--}});
+    return Object.fromEntries(CATS.map((c,i)=>[c,base[i]]));
+  },
+  summarize(txs,bp){
+    let income=0,exp=0,dep=0,wd=0;const spent=Object.fromEntries(CATS.map(c=>[c,0]));
+    for(const t of txs){
+      if(t.type==='INCOME')income+=t.amountPaise;
+      else if(t.type==='EXPENSE'){exp+=t.amountPaise;spent[t.category]+=t.amountPaise}
+      else if(t.type==='SAVINGS_DEPOSIT')dep+=t.amountPaise;
+      else wd+=t.amountPaise;
+    }
+    const sav=dep-wd;spent.SAVINGS=sav;
+    const planned=E.allocate(income,bp);
+    const remaining=Object.fromEntries(CATS.map(c=>[c,planned[c]-spent[c]]));
+    return{totalIncome:income,ordinaryExpenses:exp,savingsBalance:sav,available:income-exp-dep+wd,totalOwned:income-exp,planned,spent,remaining};
+  },
+  check(s,type,cat,amt){
+    if(!(amt>0))return{k:'reject',reason:'Amount must be greater than zero.'};
+    if(type==='INCOME')return{k:'ok'};
+    if(type==='SAVINGS_DEPOSIT')return amt>s.available?{k:'reject',reason:E.insuff(s.available,amt)}:{k:'ok'};
+    if(type==='SAVINGS_WITHDRAWAL')return amt>s.savingsBalance?{k:'reject',reason:`You only have ${E.money(s.savingsBalance)} in savings.`}:{k:'ok'};
+    if(!cat)return{k:'reject',reason:'Choose a category.'};
+    if(cat==='SAVINGS')return{k:'reject',reason:'Use a savings transfer for savings.'};
+    if(amt>s.available)return{k:'reject',reason:E.insuff(s.available,amt)};
+    const r=s.remaining[cat];
+    return amt>r?{k:'warn',categoryRemaining:r,exceededBy:amt-Math.max(r,0)}:{k:'ok'};
+  },
+  insuff:(a,r)=>`Not enough money. Available: ${E.money(a)}, requested: ${E.money(r)}.`,
+  money(p){
+    const sign=p<0?'-':'',a=Math.abs(p),r=String(Math.floor(a/100)),c=String(a%100).padStart(2,'0');
+    let g=r;if(r.length>3){let rest=r.slice(0,-3);const parts=[];while(rest.length>2){parts.unshift(rest.slice(-2));rest=rest.slice(0,-2)}if(rest)parts.unshift(rest);g=parts.join(',')+','+r.slice(-3)}
+    return `${sign}₹${g}.${c}`;
+  }
+};
+const M=E.money;
+
+/* ---- State (localStorage is a per-device convenience; guarded) ---- */
+const KEY='my-budget-v1';
+let st={txs:[],plan:{...DEFAULT_PLAN},nextId:1};
+try{const raw=localStorage.getItem(KEY);if(raw){const d=JSON.parse(raw);if(d&&Array.isArray(d.txs)&&!E.validatePlan(d.plan))st=d}}catch(e){}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}};
+let tab='home',form={type:'EXPENSE',cat:'CANTEEN'},msg=null,pending=null;
+
+const toPaise=v=>{const n=Number(String(v).replace(/[,₹\s]/g,''));return Number.isFinite(n)?Math.round(n*100):NaN};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sum=()=>E.summarize(st.txs,st.plan);
+const pct=(a,b)=>b>0?Math.max(0,Math.min(100,a/b*100)):0;
+const fmtDate=t=>new Date(t).toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+const addTx=(type,amountPaise,category,note)=>{st.txs.push({id:st.nextId++,type,amountPaise,category:category||null,note:note||'',at:Date.now()});save()};
+
+/* ---- Views ---- */
+const TABS=[['home','Home'],['add','Add'],['use','Use'],['history','History'],['reports','Reports'],['settings','Settings']];
+function banner(){if(!msg)return'';const m=msg;return `<div class="msg ${m.k}" role="status">${esc(m.t)}</div>`}
+
+function home(){
+  const s=sum(),own=Math.max(s.totalOwned,1);
+  const cards=['CANTEEN','COLLEGE','TRAVELLING'].map(c=>{
+    const over=s.remaining[c]<0;
+    return `<div class="panel"><div class="row"><b>${LABEL[c]}</b><span class="${over?'neg':''}">${over?'Over by '+M(-s.remaining[c]):M(s.remaining[c])+' left'}</span></div>
+    <div class="bar ${over?'over':''}"><i style="width:${pct(s.spent[c],s.planned[c])}%"></i></div>
+    <div class="mute">Spent ${M(s.spent[c])} of ${M(s.planned[c])} planned (${st.plan[c]/100}%)</div></div>`}).join('');
+  return `<h1>Available to spend</h1><div class="big">${M(s.available)}</div>
+  <div class="split" aria-hidden="true"><i style="width:${pct(s.available,own)}%"></i><i style="width:${pct(s.savingsBalance,own)}%"></i></div>
+  <div class="row mute"><span>Spendable ${M(s.available)}</span><span>Savings ${M(s.savingsBalance)}</span></div>
+  <div class="panel row"><span>Total you own</span><b>${M(s.totalOwned)}</b></div>
+  ${cards}
+  <div class="panel"><div class="row"><b>Savings</b><span>${M(s.savingsBalance)}</span></div><div class="mute">Plan target ${M(s.planned.SAVINGS)} (${st.plan.SAVINGS/100}% of income)</div></div>
+  ${s.totalIncome===0?'<div class="msg ok">Start by adding money on the Add tab.</div>':''}`;
+}
+function add(){return `<h1>Add money</h1><div class="big">Money in</div>
+  <label for="amt">Amount (₹)</label><input id="amt" inputmode="decimal" placeholder="2000">
+  <label for="note">Note (optional)</label><input id="note" placeholder="Pocket money">
+  <button class="go" data-do="income">Add money</button>${banner()}`}
+function use(){
+  const t=form.type,isExp=t==='EXPENSE',s=sum();
+  const types=[['EXPENSE','Spend'],['SAVINGS_DEPOSIT','Save'],['SAVINGS_WITHDRAWAL','Take from savings']];
+  return `<h1>Use money</h1><div class="big">${M(s.available)}</div><div class="mute">available now</div>
+  <label>What are you doing?</label><div class="chips">${types.map(([k,l])=>`<button data-type="${k}" aria-pressed="${t===k}">${l}</button>`).join('')}</div>
+  ${isExp?`<label>Category</label><div class="chips">${['CANTEEN','COLLEGE','TRAVELLING'].map(c=>`<button data-cat="${c}" aria-pressed="${form.cat===c}">${LABEL[c]}</button>`).join('')}</div>`:''}
+  <label for="amt">Amount (₹)</label><input id="amt" inputmode="decimal" placeholder="100">
+  <label for="note">Note (optional)</label><input id="note" placeholder="${isExp?'Lunch':'Optional'}">
+  ${pending?`<div class="msg warn">${LABEL[pending.cat]} has ${M(pending.w.categoryRemaining)} left in its plan. This spend goes over by ${M(pending.w.exceededBy)}. Continue?</div>
+  <button class="go" data-do="confirm">Spend anyway</button><button class="go alt" data-do="cancel">Cancel</button>`:`<button class="go" data-do="use">${isExp?'Spend money':t==='SAVINGS_DEPOSIT'?'Move to savings':'Move to available'}</button>`}
+  ${banner()}`;
+}
+function history(){
+  if(!st.txs.length)return `<h1>History</h1><div class="msg ok">No transactions yet. Add money to begin.</div>`;
+  const sign={INCOME:'+',EXPENSE:'-',SAVINGS_DEPOSIT:'→',SAVINGS_WITHDRAWAL:'←'};
+  const name=t=>t.type==='INCOME'?'Money added':t.type==='EXPENSE'?LABEL[t.category]:t.type==='SAVINGS_DEPOSIT'?'Moved to savings':'Taken from savings';
+  return `<h1>History</h1>${banner()}<div class="panel">${[...st.txs].reverse().map(t=>`<div class="tx"><div><b>${name(t)}</b><div class="mute">${fmtDate(t.at)}${t.note?' · '+esc(t.note):''}</div><button class="x" data-del="${t.id}">Delete</button></div>
+  <b class="${t.type==='INCOME'?'pos':t.type==='EXPENSE'?'neg':''}">${sign[t.type]} ${M(t.amountPaise)}</b></div>`).join('')}</div>`;
+}
+function reports(){
+  const s=sum();
+  const rows=CATS.map(c=>{const over=s.remaining[c]<0&&c!=='SAVINGS';return `<div class="panel"><div class="row"><b>${LABEL[c]}</b><span class="mute">${st.plan[c]/100}%</span></div>
+  <div class="bar ${over?'over':''}"><i style="width:${pct(s.spent[c],s.planned[c])}%"></i></div>
+  <div class="row mute"><span>${c==='SAVINGS'?'Saved':'Spent'} ${M(s.spent[c])}</span><span>Plan ${M(s.planned[c])}</span></div>
+  <div class="${over?'neg':''}">${over?'Over budget by '+M(-s.remaining[c]):(c==='SAVINGS'?'Still to save ':'Remaining ')+M(Math.max(s.remaining[c],0))}</div></div>`}).join('');
+  return `<h1>Reports</h1><div class="panel"><div class="row"><span>Total income</span><b>${M(s.totalIncome)}</b></div>
+  <div class="row"><span>Ordinary expenses</span><b>${M(s.ordinaryExpenses)}</b></div>
+  <div class="row"><span>Savings balance</span><b>${M(s.savingsBalance)}</b></div>
+  <div class="row"><span>Available</span><b>${M(s.available)}</b></div>
+  <div class="row"><span>Total owned</span><b>${M(s.totalOwned)}</b></div></div>${rows}`;
+}
+function settings(){
+  return `<h1>Settings</h1><h2>Budget split</h2><div class="mute">Changing the split only changes the plan. Past transactions stay as they are.</div>
+  ${CATS.map(c=>`<div class="pct"><span>${LABEL[c]}</span><input data-p="${c}" inputmode="decimal" value="${st.plan[c]/100}" aria-label="${LABEL[c]} percent"><span style="flex:0">%</span></div>`).join('')}
+  <button class="go" data-do="plan">Save split</button>
+  <h2>Backup</h2><div class="mute">Copy this text somewhere safe. Paste it back here to restore.</div>
+  <label for="bk">Backup data</label><textarea id="bk"></textarea>
+  <button class="go alt" data-do="export">Fill with my data</button><button class="go alt" data-do="copy">Copy</button><button class="go alt" data-do="import">Restore from text</button>
+  <h2>Reset</h2><button class="go alt" data-do="reset">Erase everything</button>${banner()}`;
+}
+const VIEWS={home,add,use,history,reports,settings};
+
+function render(){
+  document.getElementById('app').innerHTML=VIEWS[tab]();
+  document.getElementById('nav').innerHTML=TABS.map(([k,l])=>`<button data-tab="${k}" aria-current="${tab===k}">${l}</button>`).join('');
+}
+const go=t=>{tab=t;msg=null;pending=null;render();scrollTo(0,0)};
+const val=id=>(document.getElementById(id)||{}).value||'';
+
+/* ---- Actions ---- */
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const d=b.dataset;
+  if(d.tab)return go(d.tab);
+  if(d.type){form.type=d.type;msg=null;pending=null;return render()}
+  if(d.cat){form.cat=d.cat;pending=null;return render()}
+  if(d.del){
+    const id=+d.del,rest=st.txs.filter(t=>t.id!==id),s=E.summarize(rest,st.plan);
+    if(s.available<0||s.savingsBalance<0||CATS.some(c=>s.spent[c]<0)){msg={k:'err',t:'Cannot delete this: later transactions depend on it and the balance would go below zero.'};return render()}
+    st.txs=rest;save();msg={k:'ok',t:'Deleted.'};return render();
+  }
+  switch(d.do){
+    case'income':{
+      const a=toPaise(val('amt')),c=E.check(sum(),'INCOME',null,a);
+      if(c.k==='reject'||isNaN(a)){msg={k:'err',t:c.reason||'Enter a valid amount.'};return render()}
+      addTx('INCOME',a,null,val('note'));msg={k:'ok',t:`Added ${M(a)}. Available is now ${M(sum().available)}.`};return render();
+    }
+    case'use':{
+      const a=toPaise(val('amt')),t=form.type,cat=t==='EXPENSE'?form.cat:null;
+      if(isNaN(a)){msg={k:'err',t:'Enter a valid amount.'};return render()}
+      const c=E.check(sum(),t,cat,a);
+      if(c.k==='reject'){msg={k:'err',t:c.reason};return render()}
+      if(c.k==='warn'){pending={a,cat,note:val('note'),w:c};msg=null;render();document.getElementById('amt').value=(a/100);return}
+      addTx(t,a,cat,val('note'));msg={k:'ok',t:`Done. Available is now ${M(sum().available)}.`};return render();
+    }
+    case'confirm':addTx('EXPENSE',pending.a,pending.cat,pending.note);pending=null;msg={k:'ok',t:`Spent. Available is now ${M(sum().available)}.`};return render();
+    case'cancel':pending=null;return render();
+    case'plan':{
+      const bp={};CATS.forEach(c=>{bp[c]=Math.round(Number(document.querySelector(`[data-p=${c}]`).value)*100)});
+      const err=E.validatePlan(bp)||(CATS.some(c=>isNaN(bp[c]))?'Enter a number for every category.':null);
+      if(err){msg={k:'err',t:err};return render()}
+      st.plan=bp;save();msg={k:'ok',t:'Split saved.'};return render();
+    }
+    case'export':document.getElementById('bk').value=JSON.stringify(st);return;
+    case'copy':{const ta=document.getElementById('bk');if(!ta.value)ta.value=JSON.stringify(st);ta.select();try{await navigator.clipboard.writeText(ta.value);msg={k:'ok',t:'Copied.'}}catch(x){msg={k:'warn',t:'Select the text and copy it manually.'}}const v=ta.value;render();document.getElementById('bk').value=v;return}
+    case'import':{
+      try{
+        const x=JSON.parse(val('bk'));
+        if(!Array.isArray(x.txs)||E.validatePlan(x.plan))throw 0;
+        const ok=x.txs.every(t=>Number.isInteger(t.amountPaise)&&t.amountPaise>0&&['INCOME','EXPENSE','SAVINGS_DEPOSIT','SAVINGS_WITHDRAWAL'].includes(t.type)&&(t.type!=='EXPENSE'||['CANTEEN','COLLEGE','TRAVELLING'].includes(t.category)));
+        if(!ok)throw 0;
+        st={txs:x.txs,plan:x.plan,nextId:Math.max(0,...x.txs.map(t=>t.id||0))+1};save();msg={k:'ok',t:`Restored ${st.txs.length} transactions.`};
+      }catch(x){msg={k:'err',t:'That text is not a valid backup. Paste the full text you copied earlier.'}}
+      return render();
+    }
+    case'reset':
+      if(b.dataset.sure){st={txs:[],plan:{...DEFAULT_PLAN},nextId:1};save();msg={k:'ok',t:'Everything erased.'};return render()}
+      b.dataset.sure=1;b.textContent='Tap again to erase everything';return;
+  }
+});
+render();
+</script>
+</body>
+</html>
